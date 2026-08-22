@@ -118,7 +118,7 @@ async function pickFirstToDmWinners(bot, giveawayId) {
       ['Winners', winners.length.toString()]
     ]);
 
-    announceText += '\n\n🥇 WINNERS (Fastest DM's):\n' + winnerLines.join('\n');
+    announceText += '\n\n🥇 WINNERS (Fastest DMs):\n' + winnerLines.join('\n');
     announceText += `\n\n🎊 DM ${hostUsername} to claim your prize!`;
 
     await bot.sendMessage(giveaway.channelId, announceText, { parse_mode: 'HTML' });
