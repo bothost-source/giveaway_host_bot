@@ -40,7 +40,7 @@ function buildJoinButtons(missingChannels) {
     const username = ch.startsWith('@') ? ch : '@' + ch.replace('-100', '');
     return [{ text: `📢 Join ${username}`, url: `https://t.me/${username.replace('@', '')}` }];
   });
-  buttons.push([{ text: " I've Joined All ", callback_data: 'check_membership' }]);
+  buttons.push([{ text: "✅ I've Joined All", callback_data: 'check_membership' }]);
   buttons.push([{ text: '❌ Cancel', callback_data: 'cancel' }]);
   return buttons;
 }
@@ -74,7 +74,7 @@ async function handleStart(bot, msg, match) {
         reply_markup: {
           inline_keyboard: [
             [{ text: `📢 Join ${channelUsername}`, url: `https://t.me/${channelUsername.replace('@', '')}` }],
-            [{ text: " I've Joined", callback_data: 'check_membership_start' }],
+            [{ text: "✅ I've Joined", callback_data: "check_membership_start" }],
             [{ text: '❌ Cancel', callback_data: 'cancel' }]
           ]
         }
@@ -99,7 +99,7 @@ async function handleStart(bot, msg, match) {
     '🎉 WELCOME TO GIVEAWAY BOT',
     [
       '',
-      '🤖 I'm here to help channel owners',
+      "🤖 I'm here to help channel owners",
       '   host epic giveaways:',
       '',
       '   • Name Contests  • Referral Battles',
@@ -110,9 +110,9 @@ async function handleStart(bot, msg, match) {
       '   to your channel then tap below',
       '',
       '💎 Want YOUR channel featured?',
-      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 star ⭐',
+      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
       '',
-      '⚡ Let's make someone win today!'
+      "⚡ Let's make someone win today!"
     ]
   );
 
@@ -752,7 +752,7 @@ async function handleMainMenu(bot, query) {
     '🎉 WELCOME TO GIVEAWAY BOT',
     [
       '',
-      '🤖 I'm here to help channel owners',
+      "🤖 I'm here to help channel owners",
       '   host epic giveaways:',
       '',
       '   • Name Contests  • Referral Battles',
@@ -765,7 +765,7 @@ async function handleMainMenu(bot, query) {
       '💎 Want YOUR channel featured?',
       '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
       '',
-      '⚡ Let's make someone win today!'
+      "⚡ Let's make someone win today!"
     ]
   );
 
