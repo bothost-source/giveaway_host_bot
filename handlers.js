@@ -89,7 +89,40 @@ function setupCallbacks(bot) {
       if (data === 'main_menu') return handleMainMenu(bot, query);
       if (data === 'cancel') {
         clearState(userId);
-        return handleMainMenu(bot, query);
+        // Answer the callback first
+        await bot.answerCallbackQuery(query.id, { text: 'Cancelled' });
+        // Send new message since we can't edit photo to text
+        const text = formatInfoBox(
+          '🎉 WELCOME TO GIVEAWAY BOT',
+          [
+            '',
+            "🤖 I'm here to help channel owners",
+            '   host epic giveaways:',
+            '',
+            '   • Name Contests  • Referral Battles',
+            '   • Caption Wars   • Reaction Drops',
+            '   • First-to-DM    • Auto-Draws & More!',
+            '',
+            '👑 Channel owners: Add me as admin',
+            '   to your channel then tap below',
+            '',
+            '💎 Want YOUR channel featured?',
+            '   DM ' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
+            '',
+            "⚡ Let's make someone win today!"
+          ]
+        );
+        return bot.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎉 Create Giveaway', callback_data: 'create_start' }],
+              [{ text: '📋 My Giveaways', callback_data: 'manage_giveaways' }],
+              [{ text: '💎 Sponsor Info', callback_data: 'sponsor_info' }],
+              [{ text: '❓ Help', callback_data: 'help' }]
+            ]
+          }
+        });
       }
       if (data === 'help') return handleHelp(bot, query);
       if (data === 'sponsor_info') return handleSponsor(bot, query);
