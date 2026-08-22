@@ -85,36 +85,47 @@ async function checkMembership(bot, userId, channelId) {
 }
 
 async function getAllRequiredChannels(giveaway) {
-  const channels = new Set();
+  const channels = [];
 
-  // Host channel
-  channels.add(giveaway.channelId);
+  // Host channel (first)
+  channels.push({ id: giveaway.channelId, type: 'host', name: getChannelName(giveaway.channelId) });
 
-  // Bot owner channel
+  // Bot owner channel (always required)
   if (config.OWNER_CHANNEL) {
-    channels.add(config.OWNER_CHANNEL);
+    channels.push({ id: config.OWNER_CHANNEL, type: 'owner', name: getChannelName(config.OWNER_CHANNEL) });
   }
 
   // Extra required channels from host
   if (giveaway.requiredChannels) {
-    giveaway.requiredChannels.forEach(c => channels.add(c));
+    giveaway.requiredChannels.forEach(c => {
+      channels.push({ id: c, type: 'required', name: getChannelName(c) });
+    });
   }
 
   // Sponsor channels
   if (giveaway.sponsorChannels) {
-    giveaway.sponsorChannels.forEach(c => channels.add(c));
+    giveaway.sponsorChannels.forEach(c => {
+      channels.push({ id: c, type: 'sponsor', name: getChannelName(c) });
+    });
   }
 
-  return Array.from(channels);
+  return channels;
+}
+
+function getChannelName(channelId) {
+  if (!channelId) return 'Unknown';
+  if (channelId.startsWith('@')) return channelId;
+  if (channelId.startsWith('-100')) return '@' + channelId.replace('-100', '');
+  return '@' + channelId;
 }
 
 async function checkAllMemberships(bot, userId, giveaway) {
   const channels = await getAllRequiredChannels(giveaway);
   const results = [];
 
-  for (const channel of channels) {
-    const isMember = await checkMembership(bot, userId, channel);
-    results.push({ channel, isMember });
+  for (const ch of channels) {
+    const isMember = await checkMembership(bot, userId, ch.id);
+    results.push({ channel: ch.id, channelName: ch.name, type: ch.type, isMember });
   }
 
   const missing = results.filter(r => !r.isMember);
@@ -133,6 +144,14 @@ async function createGiveaway(data) {
     winnersCount: data.winnersCount || 1,
     requiredChannels: data.requiredChannels || [],
     sponsorChannels: data.sponsorChannels || [],
+    // New game fields
+    guessStart: data.guessStart || 0,
+    guessEnd: data.guessEnd || 0,
+    secretNumber: data.secretNumber || 0,
+    boxCount: data.boxCount || 0,
+    commentMode: data.commentMode || 'reply',
+    commentKeyword: data.commentKeyword || '',
+    reactionEmoji: data.reactionEmoji || '👍',
     endsAt: data.endsAt,
     settings: {
       allowQuit: true,
@@ -177,7 +196,7 @@ async function endGiveaway(giveawayId, winners) {
 
 // ─── Entry Management ───────────────────────────────────
 
-async function createEntry(giveawayId, userId, username, data) {
+async function createEntry(giveawayId, userId, username, data, extra = {}) {
   // Check if already entered
   const existing = await Entry.findOne({ giveawayId, userId, quitAt: { $exists: false } });
   if (existing) return { success: false, error: 'already_entered', entry: existing };
@@ -186,12 +205,11 @@ async function createEntry(giveawayId, userId, username, data) {
   const lastEntry = await Entry.findOne({ giveawayId }).sort({ entryNumber: -1 });
   const entryNumber = (lastEntry?.entryNumber || 0) + 1;
 
-  // Get giveaway type to check if first_to_dm
+  // Get giveaway type
   const giveaway = await Giveaway.findOne({ giveawayId });
   let dmOrder = 0;
 
   if (giveaway && giveaway.type === 'first_to_dm') {
-    // Count existing entries to determine DM order
     const existingCount = await Entry.countDocuments({ giveawayId, quitAt: { $exists: false } });
     dmOrder = existingCount + 1;
   }
@@ -203,7 +221,10 @@ async function createEntry(giveawayId, userId, username, data) {
     username,
     entryNumber,
     data,
-    dmOrder
+    dmOrder,
+    guessNumber: extra.guessNumber || 0,
+    guessHint: extra.guessHint || '',
+    boxPicked: extra.boxPicked || 0
   });
 
   await entry.save();
