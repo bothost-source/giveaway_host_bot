@@ -40,7 +40,7 @@ function buildJoinButtons(missingChannels) {
     const username = ch.startsWith('@') ? ch : '@' + ch.replace('-100', '');
     return [{ text: `📢 Join ${username}`, url: `https://t.me/${username.replace('@', '')}` }];
   });
-  buttons.push([{ text: '✅ I've Joined All', callback_data: 'check_membership' }]);
+  buttons.push([{ text: " I've Joined All ", callback_data: 'check_membership' }]);
   buttons.push([{ text: '❌ Cancel', callback_data: 'cancel' }]);
   return buttons;
 }
