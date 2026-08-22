@@ -26,6 +26,37 @@ function clearState(userId) {
   userStates.delete(userId);
 }
 
+// ─── Helper: Safe Edit or Send ─────────────────────────
+async function safeEditOrSend(bot, query, text, keyboard) {
+  const chatId = query.message.chat.id;
+
+  // If current message has photo, send new message
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard
+    });
+  }
+
+  try {
+    return await bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: keyboard
+    });
+  } catch (err) {
+    // If edit fails (e.g., message too old), send new message
+    if (err.message.includes('message is not modified') || err.message.includes('message to edit not found')) {
+      return bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+      });
+    }
+    throw err;
+  }
+}
+
 // ─── Helper: Send Box Message ───────────────────────────
 async function sendBox(bot, chatId, text, options = {}) {
   return bot.sendMessage(chatId, text, {
@@ -156,15 +187,16 @@ async function handleCreateStart(bot, query) {
 
     setState(userId, 'waiting_channel_forward', {});
 
+    const keyboard = { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] };
+
+    if (query.message.photo) {
+      return bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard });
+    }
     return bot.editMessageText(text, {
       chat_id: chatId,
       message_id: query.message.message_id,
       parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '❌ Cancel', callback_data: 'cancel' }]
-        ]
-      }
+      reply_markup: keyboard
     });
   }
 
@@ -180,6 +212,9 @@ async function handleCreateStart(bot, query) {
   keyboard.push([{ text: '➕ Add New Channel', callback_data: 'add_channel' }]);
   keyboard.push([{ text: '❌ Cancel', callback_data: 'cancel' }]);
 
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } });
+  }
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
@@ -690,16 +725,21 @@ async function handleSponsor(bot, query) {
     ]
   );
 
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '📩 Contact @' + config.OWNER_USERNAME, url: `https://t.me/${config.OWNER_USERNAME}` }],
+      [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
+    ]
+  };
+
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
     parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '📩 Contact @' + config.OWNER_USERNAME, url: `https://t.me/${config.OWNER_USERNAME}` }],
-        [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
-      ]
-    }
+    reply_markup: keyboard
   });
 }
 
@@ -731,15 +771,16 @@ async function handleHelp(bot, query) {
     ]
   );
 
+  const keyboard = { inline_keyboard: [[{ text: '🔙 Main Menu', callback_data: 'main_menu' }]] };
+
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
     parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🔙 Main Menu', callback_data: 'main_menu' }]
-      ]
-    }
+    reply_markup: keyboard
   });
 }
 
@@ -769,18 +810,28 @@ async function handleMainMenu(bot, query) {
     ]
   );
 
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '🎉 Create Giveaway', callback_data: 'create_start' }],
+      [{ text: '📋 My Giveaways', callback_data: 'manage_giveaways' }],
+      [{ text: '💎 Sponsor Info', callback_data: 'sponsor_info' }],
+      [{ text: '❓ Help', callback_data: 'help' }]
+    ]
+  };
+
+  // If current message is a photo, send new message instead of editing
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard
+    });
+  }
+
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
     parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🎉 Create Giveaway', callback_data: 'create_start' }],
-        [{ text: '📋 My Giveaways', callback_data: 'manage_giveaways' }],
-        [{ text: '💎 Sponsor Info', callback_data: 'sponsor_info' }],
-        [{ text: '❓ Help', callback_data: 'help' }]
-      ]
-    }
+    reply_markup: keyboard
   });
 }
 
