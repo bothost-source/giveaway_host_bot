@@ -100,7 +100,7 @@ async function pickFirstToDmWinners(bot, giveawayId) {
     // No one DM'd
     const noWinnerText = formatWarning(
       '❌ NO WINNERS',
-      '❌ No one DM'd',
+      "❌ No one DM'd",
       'Nobody sent a DM in time',
       'Better luck next time!'
     );
