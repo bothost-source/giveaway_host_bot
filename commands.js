@@ -307,6 +307,14 @@ async function handleSelectType(bot, query, type) {
     ['Action', 'Send the prize name']
   ]);
 
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+      }
+    });
+  }
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
@@ -379,12 +387,13 @@ async function handleWinnersSelect(bot, query, winnersCount) {
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [
-        [{ text: '1 Hour', callback_data: 'duration_1h' }],
-        [{ text: '6 Hours', callback_data: 'duration_6h' }],
-        [{ text: '12 Hours', callback_data: 'duration_12h' }],
-        [{ text: '1 Day', callback_data: 'duration_1d' }],
-        [{ text: '3 Days', callback_data: 'duration_3d' }],
-        [{ text: '7 Days', callback_data: 'duration_7d' }],
+        [{ text: '1 Hour', callback_data: 'duration_1h' },
+         { text: '6 Hours', callback_data: 'duration_6h' }],
+        [{ text: '12 Hours', callback_data: 'duration_12h' },
+         { text: '1 Day', callback_data: 'duration_1d' }],
+        [{ text: '3 Days', callback_data: 'duration_3d' },
+         { text: '7 Days', callback_data: 'duration_7d' }],
+        [{ text: '⏳ Custom Duration', callback_data: 'duration_custom' }],
         [{ text: '❌ Cancel', callback_data: 'cancel' }]
       ]
     }
@@ -398,7 +407,35 @@ async function handleDurationSelect(bot, query, duration) {
 
   if (state.state !== 'waiting_duration') return;
 
-  // Parse duration
+  // Custom duration
+  if (duration === 'custom') {
+    setState(userId, 'waiting_custom_duration', state.data);
+
+    const text = formatBox('⏳ CUSTOM DURATION', [
+      ['Action', 'Send duration'],
+      ['Format', 'number + unit'],
+      ['Examples', '30m, 2h, 1d, 3d']
+    ]);
+
+    if (query.message.photo) {
+      return bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+        }
+      });
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+      }
+    });
+  }
+
+  // Parse preset duration
   let hours = 24;
   if (duration === '1h') hours = 1;
   else if (duration === '6h') hours = 6;
@@ -407,9 +444,55 @@ async function handleDurationSelect(bot, query, duration) {
   else if (duration === '3d') hours = 72;
   else if (duration === '7d') hours = 168;
 
+  await finalizeDuration(bot, query, hours, duration);
+}
+
+async function handleCustomDuration(bot, msg) {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const state = getState(userId);
+
+  if (state.state !== 'waiting_custom_duration') return;
+
+  const input = msg.text.trim().toLowerCase();
+
+  // Parse custom duration: 30m, 2h, 1d, 3d, etc.
+  const match = input.match(/^(\d+)\s*(m|h|d|min|hour|day|mins|hours|days)$/);
+
+  if (!match) {
+    const text = formatWarning('❌ INVALID FORMAT', '❌ Denied', 'Use format: 30m, 2h, 1d', 'Try again');
+    return sendBox(bot, chatId, text);
+  }
+
+  const amount = parseInt(match[1]);
+  const unit = match[2];
+
+  if (amount <= 0 || amount > 365) {
+    const text = formatWarning('❌ INVALID', '❌ Denied', 'Duration must be 1-365', 'Try again');
+    return sendBox(bot, chatId, text);
+  }
+
+  let hours = amount;
+  if (unit === 'm' || unit === 'min' || unit === 'mins') {
+    hours = amount / 60;
+  } else if (unit === 'h' || unit === 'hour' || unit === 'hours') {
+    hours = amount;
+  } else if (unit === 'd' || unit === 'day' || unit === 'days') {
+    hours = amount * 24;
+  }
+
+  const durationText = input;
+  await finalizeDuration(bot, { message: msg, from: msg.from }, hours, durationText);
+}
+
+async function finalizeDuration(bot, query, hours, durationText) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+  const state = getState(userId);
+
   const endsAt = new Date(Date.now() + hours * 60 * 60 * 1000);
   state.data.endsAt = endsAt;
-  state.data.durationText = duration;
+  state.data.durationText = durationText;
 
   // Get active sponsors
   const sponsors = await getActiveSponsors();
@@ -422,12 +505,24 @@ async function handleDurationSelect(bot, query, duration) {
     ['Type', state.data.type.replace(/_/g, ' ').toUpperCase()],
     ['Prize', state.data.prize],
     ['Winners', state.data.winnersCount.toString()],
-    ['Duration', duration],
+    ['Duration', durationText],
     ['Ends At', endsAt.toLocaleString()]
   ];
 
   const text = formatBox('✅ CONFIRM GIVEAWAY', rows);
 
+  if (query.message.photo) {
+    return bot.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Post to Channel', callback_data: 'confirm_giveaway' }],
+          [{ text: '🔙 Back', callback_data: 'create_start' }],
+          [{ text: '❌ Cancel', callback_data: 'cancel' }]
+        ]
+      }
+    });
+  }
   return bot.editMessageText(text, {
     chat_id: chatId,
     message_id: query.message.message_id,
@@ -475,6 +570,14 @@ async function handleConfirmGiveaway(bot, query) {
       ['Winners', winnersCount.toString()],
       ['Ends In', getTimeLeft(endsAt)]
     ]);
+
+    // For first_to_dm, show countdown message
+    if (type === 'first_to_dm') {
+      const me = await bot.getMe();
+      postText += '\n\n<b>⏰ WHEN TIME REACHES:</b>';
+      postText += '\n📩 First ' + winnersCount + ' to DM @' + me.username + ' win!';
+      postText += '\n\n<i>Be ready! The DM button will appear here!</i>';
+    }
 
     postText += '\n' + formatInfoBox('✅ MUST JOIN', [
       `• @${channelId.replace('-100', '')} (host)`,
@@ -880,6 +983,7 @@ module.exports = {
   handlePrizeInput,
   handleWinnersSelect,
   handleDurationSelect,
+  handleCustomDuration,
   handleConfirmGiveaway,
   handleChannelForward,
   handleManage,
