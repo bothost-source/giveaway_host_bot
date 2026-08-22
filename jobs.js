@@ -114,7 +114,7 @@ async function pickFirstToDmWinners(bot, giveawayId) {
 
     let announceText = formatBox(`🎉 WINNERS — ${giveaway.prize.toUpperCase()}`, [
       ['Type', 'FIRST TO DM'],
-      ['Total DM's', entries.length.toString()],
+      ["Total DM's", entries.length.toString()],
       ['Winners', winners.length.toString()]
     ]);
 
