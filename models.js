@@ -62,6 +62,7 @@ const entrySchema = new mongoose.Schema({
   entryNumber: { type: Number, default: 0 },
   data: { type: String, default: '' }, // name, caption, etc.
   votesCount: { type: Number, default: 0 },
+  dmOrder: { type: Number, default: 0 }, // for first_to_dm: 1 = first, 2 = second, etc.
   createdAt: { type: Date, default: Date.now },
   quitAt: { type: Date }
 });
