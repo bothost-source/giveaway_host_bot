@@ -74,7 +74,7 @@ async function handleStart(bot, msg, match) {
         reply_markup: {
           inline_keyboard: [
             [{ text: `📢 Join ${channelUsername}`, url: `https://t.me/${channelUsername.replace('@', '')}` }],
-            [{ text: '✅ I've Joined', callback_data: 'check_membership_start' }],
+            [{ text: " I've Joined", callback_data: 'check_membership_start' }],
             [{ text: '❌ Cancel', callback_data: 'cancel' }]
           ]
         }
@@ -110,7 +110,7 @@ async function handleStart(bot, msg, match) {
       '   to your channel then tap below',
       '',
       '💎 Want YOUR channel featured?',
-      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
+      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 star ⭐',
       '',
       '⚡ Let's make someone win today!'
     ]
