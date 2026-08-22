@@ -16,6 +16,7 @@ const {
   userStates, setState, getState, clearState,
   sendBox, buildJoinButtons,
   handleCreateStart, handleSelectChannel, handleSelectType,
+  handleGuessRangeStart, handleGuessRangeEnd, handleBoxCount,
   handlePrizeInput, handleWinnersSelect, handleDurationSelect,
   handleCustomDuration, handleConfirmGiveaway, handleChannelForward,
   handleManage, handleManageGiveaway, handleSponsor,
@@ -176,7 +177,27 @@ function setupCallbacks(bot) {
         return handleManageGiveaway(bot, query, giveawayId);
       }
 
-            // ─── Admin Callbacks ──────────────────────────────
+            // ─── Guess Number Button ──────────────────────────
+      if (data.startsWith('guess_')) {
+        const parts = data.split('_');
+        if (parts.length >= 3) {
+          const giveawayId = parts[1];
+          const guessedNum = parseInt(parts[2]);
+          return handleGuessButton(bot, query, giveawayId, guessedNum);
+        }
+      }
+
+      // ─── Mystery Box Button ───────────────────────────
+      if (data.startsWith('box_')) {
+        const parts = data.split('_');
+        if (parts.length >= 3) {
+          const giveawayId = parts[1];
+          const boxNum = parseInt(parts[2]);
+          return handleBoxButton(bot, query, giveawayId, boxNum);
+        }
+      }
+
+      // ─── Admin Callbacks ──────────────────────────────
       if (data === 'admin_giveaways') return handleAdminGiveaways(bot, query);
       if (data === 'admin_sponsors') return handleAdminSponsors(bot, query);
       if (data === 'admin_broadcast') return handleAdminBroadcast(bot, query);
@@ -297,21 +318,39 @@ async function handleJoinGiveaway(bot, query, giveawayId) {
   const { allJoined, missing } = await checkAllMemberships(bot, userId, giveaway);
 
   if (!allJoined) {
-    // Send DM with force-join gate
+    // Build must-join buttons with clean names
+    const { buildMustJoinButtons, formatMustJoinSection } = require('./utils');
+    const { getActiveSponsors } = require('./services');
+    const config = require('./config');
+
+    const sponsors = await getActiveSponsors();
+    const sponsorChannels = sponsors.map(s => s.channelId);
+
     const text = formatWarning(
       '⚠️ ACCESS WARNING',
       '❌ Denied',
-      'Must join channels first',
-      'Join all then try again'
+      'Must join all channels below',
+      'Tap each button to join'
     );
+
+    text += '\n\n' + formatMustJoinSection(giveaway, config.OWNER_CHANNEL, sponsorChannels);
+
+    text += '\n\n<b>💎 Want YOUR channel here?</b>';
+    text += '\nDM @' + config.OWNER_USERNAME + ' — $10 or 150⭐';
 
     setState(userId, 'waiting_membership', { giveawayId });
 
+    const joinButtons = buildMustJoinButtons(
+      [giveaway.channelId],
+      config.OWNER_CHANNEL,
+      sponsorChannels
+    );
+    joinButtons.push([{ text: '✅ I've Joined All', callback_data: 'check_membership' }]);
+    joinButtons.push([{ text: '❌ Cancel', callback_data: 'cancel' }]);
+
     await bot.sendMessage(userId, text, {
       parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: buildJoinButtons(missing.map(m => m.channel))
-      }
+      reply_markup: { inline_keyboard: joinButtons }
     });
 
     return bot.answerCallbackQuery(query.id, { text: 'Check your DMs!' });
@@ -362,7 +401,7 @@ async function handleJoinGiveaway(bot, query, giveawayId) {
     // First to DM - user just needs to be ready
     // No entry needed until they actually DM when time reaches
     const me = await bot.getMe();
-    const successText = formatSuccess("✅ YOU'RE READY!", [
+    const successText = formatSuccess('✅ YOU'RE READY!', [
       ['Status', '✅ Success'],
       ['Giveaway', giveaway.prize],
       ['Action', 'Wait for time!'],
@@ -490,6 +529,21 @@ function setupMessages(bot) {
     }
 
     const state = getState(userId);
+
+    // ─── Guess Number Range Start ─────────────────────
+    if (state.state === 'waiting_guess_range_start') {
+      return handleGuessRangeStart(bot, msg);
+    }
+
+    // ─── Guess Number Range End ───────────────────────
+    if (state.state === 'waiting_guess_range_end') {
+      return handleGuessRangeEnd(bot, msg);
+    }
+
+    // ─── Mystery Box Count ────────────────────────────
+    if (state.state === 'waiting_box_count') {
+      return handleBoxCount(bot, msg);
+    }
 
     // ─── Custom Duration Input ────────────────────────
     if (state.state === 'waiting_custom_duration') {
@@ -660,11 +714,10 @@ async function updateGiveawayPost(bot, giveaway) {
 
   try {
     const entries = await getGiveawayEntries(giveaway.giveawayId);
-    const requiredChannels = [config.OWNER_CHANNEL, ...(giveaway.sponsorChannels || [])].filter(Boolean);
-    const channelList = requiredChannels.map(c => {
-      const uname = c.startsWith('@') ? c : '@' + c.replace('-100', '');
-      return `• ${uname}`;
-    });
+    const { getActiveSponsors } = require('./services');
+    const { formatMustJoinSection } = require('./utils');
+    const sponsors = await getActiveSponsors();
+    const sponsorChannels = sponsors.map(s => s.channelId);
 
     let text = formatBox(`🎉 GIVEAWAY: ${giveaway.prize.toUpperCase()}`, [
       ['Type', giveaway.type.replace(/_/g, ' ').toUpperCase()],
@@ -675,15 +728,13 @@ async function updateGiveawayPost(bot, giveaway) {
     ]);
 
     // For first_to_dm, show DM target
-    if (giveaway.type === 'first_to_dm' && giveaway.dmTarget) {
-      text += '\n\n<b>📩 FIRST TO DM ' + giveaway.dmTarget + ' WINS!</b>';
-      text += '\nSend screenshot proof to ' + giveaway.dmTarget;
+    if (giveaway.type === 'first_to_dm') {
+      const me = await bot.getMe();
+      text += '\n\n<b>📩 FIRST TO DM @' + me.username + ' WINS!</b>';
     }
 
-    text += '\n' + formatInfoBox('✅ MUST JOIN', [
-      `• @${giveaway.channelId.replace('-100', '')} (host)`,
-      ...channelList
-    ], { width: 35 });
+    // Clean must-join section
+    text += '\n\n' + formatMustJoinSection(giveaway, config.OWNER_CHANNEL, sponsorChannels);
 
     text += '\n\n📝 Tap below to enter!';
 
@@ -1285,6 +1336,165 @@ async function handleAdminPanel(bot, query) {
       ]
     }
   });
+}
+
+// ─── Guess Number Button Handler ──────────────────────
+async function handleGuessButton(bot, query, giveawayId, guessedNum) {
+  const userId = query.from.id;
+  const username = query.from.username || '';
+
+  const giveaway = await getGiveaway(giveawayId);
+  if (!giveaway || giveaway.status !== 'active') {
+    return bot.answerCallbackQuery(query.id, { text: 'Giveaway ended!', show_alert: true });
+  }
+
+  // Check membership
+  const { allJoined } = await checkAllMemberships(bot, userId, giveaway);
+  if (!allJoined) {
+    return bot.answerCallbackQuery(query.id, { text: 'Join all channels first!', show_alert: true });
+  }
+
+  // Check if already guessed
+  const existing = await getUserEntry(giveawayId, userId);
+  if (existing) {
+    return bot.answerCallbackQuery(query.id, { text: 'You already guessed!', show_alert: true });
+  }
+
+  const secret = giveaway.secretNumber;
+  let hint = '';
+  let isCorrect = false;
+
+  if (guessedNum === secret) {
+    hint = 'correct';
+    isCorrect = true;
+  } else if (guessedNum < secret) {
+    hint = 'higher';
+  } else {
+    hint = 'lower';
+  }
+
+  // Create entry
+  const result = await createEntry(giveawayId, userId, username, `Guessed: ${guessedNum}`, {
+    guessNumber: guessedNum,
+    guessHint: hint
+  });
+
+  if (!result.success) {
+    return bot.answerCallbackQuery(query.id, { text: result.error, show_alert: true });
+  }
+
+  // Send hint to user
+  if (isCorrect) {
+    await bot.sendMessage(userId, 
+      `🎉 CORRECT!\n\nYou guessed ${guessedNum}!\nThe secret number was ${secret}!\n\nWait for the winner announcement!`, 
+      { parse_mode: 'HTML' }
+    );
+
+    // Check if we have enough winners
+    const allEntries = await getGiveawayEntries(giveawayId);
+    const correctEntries = allEntries.filter(e => e.guessHint === 'correct');
+
+    if (correctEntries.length >= giveaway.winnersCount) {
+      // Pick winners (first to guess correctly)
+      const winners = correctEntries.slice(0, giveaway.winnersCount);
+      const winnerData = winners.map(w => ({
+        userId: w.userId,
+        username: w.username,
+        entryId: w.entryId
+      }));
+
+      await endGiveaway(giveawayId, winnerData);
+
+      // Announce
+      const winnerNames = winners.map(w => w.username ? `@${w.username}` : `User ${w.userId}`).join(', ');
+      await bot.sendMessage(giveaway.channelId,
+        `🎉 GUESS THE NUMBER WINNERS!\n\n` +
+        `Prize: ${giveaway.prize}\n` +
+        `Secret: ${secret}\n` +
+        `Winners: ${winnerNames}\n\n` +
+        `DM host to claim!`,
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    return bot.answerCallbackQuery(query.id, { text: `🎉 CORRECT! ${guessedNum} = ${secret}!` });
+  } else {
+    const arrow = hint === 'higher' ? '⬆️ HIGHER' : '⬇️ LOWER';
+    await bot.sendMessage(userId, 
+      `${arrow}!\n\nYou guessed: ${guessedNum}\nTry again!`, 
+      { parse_mode: 'HTML' }
+    );
+    return bot.answerCallbackQuery(query.id, { text: `${arrow}! Try again!` });
+  }
+}
+
+// ─── Mystery Box Button Handler ───────────────────────
+async function handleBoxButton(bot, query, giveawayId, boxNum) {
+  const userId = query.from.id;
+  const username = query.from.username || '';
+
+  const giveaway = await getGiveaway(giveawayId);
+  if (!giveaway || giveaway.status !== 'active') {
+    return bot.answerCallbackQuery(query.id, { text: 'Giveaway ended!', show_alert: true });
+  }
+
+  // Check membership
+  const { allJoined } = await checkAllMemberships(bot, userId, giveaway);
+  if (!allJoined) {
+    return bot.answerCallbackQuery(query.id, { text: 'Join all channels first!', show_alert: true });
+  }
+
+  // Check if already picked
+  const existing = await getUserEntry(giveawayId, userId);
+  if (existing) {
+    return bot.answerCallbackQuery(query.id, { text: 'You already picked a box!', show_alert: true });
+  }
+
+  // Pick random winning box (if not already set)
+  if (!giveaway.winningBox) {
+    const winningBox = Math.floor(Math.random() * giveaway.boxCount) + 1;
+    await Giveaway.updateOne({ giveawayId }, { winningBox });
+    giveaway.winningBox = winningBox;
+  }
+
+  const isWinner = boxNum === giveaway.winningBox;
+
+  // Create entry
+  const result = await createEntry(giveawayId, userId, username, `Box #${boxNum}`, {
+    boxPicked: boxNum
+  });
+
+  if (!result.success) {
+    return bot.answerCallbackQuery(query.id, { text: result.error, show_alert: true });
+  }
+
+  if (isWinner) {
+    // End giveaway immediately
+    const winnerData = [{ userId, username, entryId: result.entry.entryId }];
+    await endGiveaway(giveawayId, winnerData);
+
+    await bot.sendMessage(giveaway.channelId,
+      `🎉 MYSTERY BOX WINNER!\n\n` +
+      `Prize: ${giveaway.prize}\n` +
+      `Winning Box: #${giveaway.winningBox}\n` +
+      `Winner: ${username ? '@' + username : 'User ' + userId}\n\n` +
+      `DM host to claim!`,
+      { parse_mode: 'HTML' }
+    );
+
+    await bot.sendMessage(userId, 
+      `🎉 YOU WON!\n\nYou picked Box #${boxNum} and WON!\nPrize: ${giveaway.prize}\nDM host to claim!`, 
+      { parse_mode: 'HTML' }
+    );
+
+    return bot.answerCallbackQuery(query.id, { text: `🎉 BOX #${boxNum} WINS!` });
+  } else {
+    await bot.sendMessage(userId, 
+      `😢 Box #${boxNum} is empty!\n\nWinning box was #${giveaway.winningBox}\nBetter luck next time!`, 
+      { parse_mode: 'HTML' }
+    );
+    return bot.answerCallbackQuery(query.id, { text: `😢 Box #${boxNum} is empty!` });
+  }
 }
 
 module.exports = {
