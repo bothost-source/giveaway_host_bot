@@ -22,7 +22,8 @@ async function connectDB() {
 async function initBot() {
   await connectDB();
 
-  const bot = new TelegramBot(config.BOT_TOKEN, { webHook: false });
+  // ALWAYS use polling - more reliable for free Render tier
+  const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
 
   // Get bot info
   const me = await bot.getMe();
@@ -46,44 +47,28 @@ async function initBot() {
     console.error('Bot error:', err.message);
   });
 
-  // ─── Express Server (for Render webhook) ────────────
+  // ─── Express Server (for Render health check) ───────
   const app = express();
   app.use(express.json());
 
   // Health check
   app.get('/', (req, res) => {
-    res.json({ status: 'ok', bot: me.username });
+    res.json({ status: 'ok', bot: me.username, mode: 'polling' });
   });
 
-  // Webhook endpoint
-  app.post(`/bot${config.BOT_TOKEN}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
+  // Keep-alive endpoint (Render free tier needs this)
+  app.get('/ping', (req, res) => {
+    res.json({ status: 'alive', time: new Date().toISOString() });
   });
 
   // Start server
-  app.listen(config.PORT, async () => {
+  app.listen(config.PORT, () => {
     console.log(`🌐 Server running on port ${config.PORT}`);
-
-    // Set webhook if URL is configured
-    if (config.WEBHOOK_URL && config.WEBHOOK_URL.includes('render.com')) {
-      const webhookUrl = `${config.WEBHOOK_URL}/bot${config.BOT_TOKEN}`;
-      try {
-        await bot.setWebHook(webhookUrl);
-        console.log(`🔗 Webhook set: ${webhookUrl}`);
-      } catch (err) {
-        console.error('Webhook error:', err.message);
-        console.log('⚠️  Falling back to polling...');
-        bot.startPolling();
-      }
-    } else {
-      console.log('📡 Starting polling mode...');
-      bot.startPolling();
-    }
-
-    // Start cron jobs
-    startJobs(bot);
+    console.log('📡 Polling mode active');
   });
+
+  // Start cron jobs
+  startJobs(bot);
 }
 
 // ─── Start ──────────────────────────────────────────────
