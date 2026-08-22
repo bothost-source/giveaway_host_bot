@@ -345,7 +345,7 @@ async function handleJoinGiveaway(bot, query, giveawayId) {
       config.OWNER_CHANNEL,
       sponsorChannels
     );
-    joinButtons.push([{ text: '✅ I've Joined All', callback_data: 'check_membership' }]);
+    joinButtons.push([{ text: "✅ I've Joined All", callback_data: 'check_membership' }]);
     joinButtons.push([{ text: '❌ Cancel', callback_data: 'cancel' }]);
 
     await bot.sendMessage(userId, text, {
@@ -401,7 +401,7 @@ async function handleJoinGiveaway(bot, query, giveawayId) {
     // First to DM - user just needs to be ready
     // No entry needed until they actually DM when time reaches
     const me = await bot.getMe();
-    const successText = formatSuccess('✅ YOU'RE READY!', [
+    const successText = formatSuccess("✅ YOU'RE READY!", [
       ['Status', '✅ Success'],
       ['Giveaway', giveaway.prize],
       ['Action', 'Wait for time!'],
