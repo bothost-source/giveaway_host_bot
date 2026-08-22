@@ -646,7 +646,8 @@ async function handleCustomDuration(bot, msg) {
 }
 
 async function finalizeDuration(bot, query, hours, durationText) {
-  const chatId = query.message.chat.id;
+  // Handle both callback_query and message objects
+  const chatId = query.message ? query.message.chat.id : query.chat.id;
   const userId = query.from.id;
   const state = getState(userId);
 
@@ -671,7 +672,8 @@ async function finalizeDuration(bot, query, hours, durationText) {
 
   const text = formatBox('✅ CONFIRM GIVEAWAY', rows);
 
-  if (query.message.photo) {
+  // If called from message (custom duration), always send new message
+  if (!query.message || query.message.photo) {
     return bot.sendMessage(chatId, text, {
       parse_mode: 'HTML',
       reply_markup: {
