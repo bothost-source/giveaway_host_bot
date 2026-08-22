@@ -16,17 +16,14 @@ function padRight(text, width) {
 
 /**
  * Format a box with title and rows using Telegram blockquote
- * rows = [[label, value], [label, value], ...]
  */
 function formatBox(title, rows, options = {}) {
   const width = options.width || WIDTH;
   const lines = [];
 
-  // Title with emoji
   lines.push(`<b>${title}</b>`);
   lines.push('');
 
-  // Rows
   for (const row of rows) {
     let label, value;
     if (Array.isArray(row)) {
@@ -103,6 +100,67 @@ function formatInfoBox(title, textLines, options = {}) {
 }
 
 /**
+ * Build must-join channel buttons
+ */
+function buildMustJoinButtons(channels, ownerChannel, sponsorChannels) {
+  const buttons = [];
+
+  // Host channel
+  if (channels && channels.length > 0) {
+    const hostCh = channels[0];
+    const hostName = hostCh.startsWith('@') ? hostCh : '@' + hostCh.replace('-100', '');
+    buttons.push([{ text: `📢 Join ${hostName}`, url: `https://t.me/${hostName.replace('@', '')}` }]);
+  }
+
+  // Owner channel (always required)
+  if (ownerChannel) {
+    const ownerName = ownerChannel.startsWith('@') ? ownerChannel : '@' + ownerChannel.replace('-100', '');
+    buttons.push([{ text: `⭐ Join ${ownerName} (Bot)`, url: `https://t.me/${ownerName.replace('@', '')}` }]);
+  }
+
+  // Sponsor channels
+  if (sponsorChannels && sponsorChannels.length > 0) {
+    sponsorChannels.forEach(ch => {
+      const chName = ch.startsWith('@') ? ch : '@' + ch.replace('-100', '');
+      buttons.push([{ text: `💎 Join ${chName} (Sponsor)`, url: `https://t.me/${chName.replace('@', '')}` }]);
+    });
+  }
+
+  return buttons;
+}
+
+/**
+ * Format must-join section with buttons
+ */
+function formatMustJoinSection(giveaway, ownerChannel, sponsorChannels) {
+  const lines = [];
+
+  lines.push('<b>✅ MUST JOIN:</b>');
+  lines.push('');
+
+  // Host channel
+  const hostId = giveaway.channelId;
+  const hostName = hostId.startsWith('@') ? hostId : '@' + hostId.replace('-100', '');
+  lines.push(`📢 ${hostName} <i>(host)</i>`);
+
+  // Owner channel
+  if (ownerChannel) {
+    const ownerName = ownerChannel.startsWith('@') ? ownerChannel : '@' + ownerChannel.replace('-100', '');
+    lines.push(`⭐ ${ownerName} <i>(bot owner)</i>`);
+  }
+
+  // Sponsor channels
+  if (sponsorChannels && sponsorChannels.length > 0) {
+    sponsorChannels.forEach(ch => {
+      const chName = ch.startsWith('@') ? ch : '@' + ch.replace('-100', '');
+      lines.push(`💎 ${chName} <i>(sponsor)</i>`);
+    });
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Warning/Error box
  */
 function formatWarning(title, access, reason, action) {
@@ -155,6 +213,8 @@ function getTimeLeft(date) {
 module.exports = {
   formatBox,
   formatInfoBox,
+  formatMustJoinSection,
+  buildMustJoinButtons,
   formatWarning,
   formatSuccess,
   generateId,
