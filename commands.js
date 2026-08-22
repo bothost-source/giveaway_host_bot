@@ -7,7 +7,8 @@ const {
   getReferralLink, getActiveGiveaways
 } = require('./services');
 const {
-  formatBox, formatInfoBox, formatWarning, formatSuccess,
+  formatBox, formatInfoBox, formatMustJoinSection, buildMustJoinButtons,
+  formatWarning, formatSuccess,
   generateId, getTimeLeft, escapeMarkdown
 } = require('./utils');
 
@@ -275,15 +276,17 @@ async function handleSelectChannel(bot, query, channelId) {
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [
-        [{ text: '🎲 Random Draw', callback_data: 'type_random' }],
-        [{ text: '🗳️ Name/Vote', callback_data: 'type_name_vote' }],
-        [{ text: '📝 Caption Contest', callback_data: 'type_caption' }],
-        [{ text: '👍 Reaction', callback_data: 'type_reaction' }],
-        [{ text: '💬 Comment', callback_data: 'type_comment' }],
-        [{ text: '📤 Share', callback_data: 'type_share' }],
-        [{ text: '🏆 First to DM', callback_data: 'type_first_to_dm' }],
-        [{ text: '📢 Referral', callback_data: 'type_referral' }],
-        [{ text: '🎯 Auto-Draw', callback_data: 'type_auto_draw' }],
+        [{ text: '🎲 Random Draw', callback_data: 'type_random' },
+         { text: '🗳️ Name/Vote', callback_data: 'type_name_vote' }],
+        [{ text: '📝 Caption', callback_data: 'type_caption' },
+         { text: '👍 Reaction', callback_data: 'type_reaction' }],
+        [{ text: '💬 Comment', callback_data: 'type_comment' },
+         { text: '📤 Share', callback_data: 'type_share' }],
+        [{ text: '🏆 First to DM', callback_data: 'type_first_to_dm' },
+         { text: '📢 Referral', callback_data: 'type_referral' }],
+        [{ text: '🔢 Guess Number', callback_data: 'type_guess_number' },
+         { text: '🎁 Mystery Box', callback_data: 'type_mystery_box' }],
+        [{ text: '🏃 Flash Race', callback_data: 'type_flash_race' }],
         [{ text: '🔙 Back', callback_data: 'create_start' }]
       ]
     }
@@ -300,6 +303,63 @@ async function handleSelectType(bot, query, type) {
   }
 
   state.data.type = type;
+
+  // For guess_number, ask for number range first
+  if (type === 'guess_number') {
+    setState(userId, 'waiting_guess_range_start', state.data);
+
+    const text = formatBox('🔢 GUESS THE NUMBER', [
+      ['Action', 'Set number range'],
+      ['Max Range', '100 digits apart'],
+      ['Examples', '1-100, 200-300']
+    ]);
+
+    if (query.message.photo) {
+      return bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+        }
+      });
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+      }
+    });
+  }
+
+  // For mystery_box, ask for number of boxes
+  if (type === 'mystery_box') {
+    setState(userId, 'waiting_box_count', state.data);
+
+    const text = formatBox('🎁 MYSTERY BOX', [
+      ['Action', 'How many boxes?'],
+      ['Range', '3 to 20 boxes'],
+      ['Example', '10 boxes']
+    ]);
+
+    if (query.message.photo) {
+      return bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+        }
+      });
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+      }
+    });
+  }
+
   setState(userId, 'waiting_prize', state.data);
 
   const text = formatBox('🎁 ENTER PRIZE', [
@@ -319,6 +379,105 @@ async function handleSelectType(bot, query, type) {
     chat_id: chatId,
     message_id: query.message.message_id,
     parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+    }
+  });
+}
+
+async function handleGuessRangeStart(bot, msg) {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const state = getState(userId);
+
+  if (state.state !== 'waiting_guess_range_start') return;
+
+  const input = msg.text.trim();
+  const num = parseInt(input);
+
+  if (isNaN(num) || num < 0) {
+    const text = formatWarning('❌ INVALID', '❌ Denied', 'Send a valid start number', 'Example: 1 or 200');
+    return sendBox(bot, chatId, text);
+  }
+
+  state.data.guessStart = num;
+  setState(userId, 'waiting_guess_range_end', state.data);
+
+  const text = formatBox('🔢 GUESS THE NUMBER', [
+    ['Start', num.toString()],
+    ['Action', 'Send END number'],
+    ['Max Range', '100 digits from start']
+  ]);
+
+  return sendBox(bot, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+    }
+  });
+}
+
+async function handleGuessRangeEnd(bot, msg) {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const state = getState(userId);
+
+  if (state.state !== 'waiting_guess_range_end') return;
+
+  const input = msg.text.trim();
+  const endNum = parseInt(input);
+  const startNum = state.data.guessStart;
+
+  if (isNaN(endNum) || endNum <= startNum) {
+    const text = formatWarning('❌ INVALID', '❌ Denied', 'End must be greater than start', `Start was ${startNum}`);
+    return sendBox(bot, chatId, text);
+  }
+
+  if (endNum - startNum > 100) {
+    const text = formatWarning('❌ TOO BIG', '❌ Denied', 'Max range is 100 digits', `Your range: ${endNum - startNum}`);
+    return sendBox(bot, chatId, text);
+  }
+
+  // Pick random number
+  state.data.guessEnd = endNum;
+  state.data.secretNumber = Math.floor(Math.random() * (endNum - startNum + 1)) + startNum;
+  setState(userId, 'waiting_prize', state.data);
+
+  const text = formatBox('🔢 GUESS THE NUMBER', [
+    ['Range', `${startNum} - ${endNum}`],
+    ['Secret', '✅ Hidden'],
+    ['Action', 'Now send the PRIZE!']
+  ]);
+
+  return sendBox(bot, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
+    }
+  });
+}
+
+async function handleBoxCount(bot, msg) {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const state = getState(userId);
+
+  if (state.state !== 'waiting_box_count') return;
+
+  const count = parseInt(msg.text.trim());
+
+  if (isNaN(count) || count < 3 || count > 20) {
+    const text = formatWarning('❌ INVALID', '❌ Denied', 'Boxes must be 3-20', 'Try again');
+    return sendBox(bot, chatId, text);
+  }
+
+  state.data.boxCount = count;
+  setState(userId, 'waiting_prize', state.data);
+
+  const text = formatBox('🎁 MYSTERY BOX', [
+    ['Boxes', count.toString()],
+    ['Action', 'Now send the PRIZE!']
+  ]);
+
+  return sendBox(bot, chatId, text, {
     reply_markup: {
       inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]]
     }
@@ -457,7 +616,7 @@ async function handleCustomDuration(bot, msg) {
   const input = msg.text.trim().toLowerCase();
 
   // Parse custom duration: 30m, 2h, 1d, 3d, etc.
-  const match = input.match(/^(\d+)\s*(m|h|d|min|hour|day|mins|hours|days)$/);
+  const match = input.match(/^(\d+)\s*(m|min|mins|h|hr|hrs|hour|hours|d|day|days)$/i);
 
   if (!match) {
     const text = formatWarning('❌ INVALID FORMAT', '❌ Denied', 'Use format: 30m, 2h, 1d', 'Try again');
@@ -473,11 +632,12 @@ async function handleCustomDuration(bot, msg) {
   }
 
   let hours = amount;
-  if (unit === 'm' || unit === 'min' || unit === 'mins') {
+  const u = unit.toLowerCase();
+  if (u === 'm' || u === 'min' || u === 'mins') {
     hours = amount / 60;
-  } else if (unit === 'h' || unit === 'hour' || unit === 'hours') {
+  } else if (u === 'h' || u === 'hr' || u === 'hrs' || u === 'hour' || u === 'hours') {
     hours = amount;
-  } else if (unit === 'd' || unit === 'day' || unit === 'days') {
+  } else if (u === 'd' || u === 'day' || u === 'days') {
     hours = amount * 24;
   }
 
@@ -544,7 +704,7 @@ async function handleConfirmGiveaway(bot, query) {
 
   if (state.state !== 'waiting_confirm') return;
 
-  const { channelId, type, prize, winnersCount, endsAt, sponsorChannels } = state.data;
+  const { channelId, type, prize, winnersCount, endsAt, sponsorChannels, guessStart, guessEnd, secretNumber, boxCount } = state.data;
 
   try {
     const giveaway = await createGiveaway({
@@ -554,7 +714,11 @@ async function handleConfirmGiveaway(bot, query) {
       prize,
       winnersCount,
       endsAt,
-      sponsorChannels
+      sponsorChannels,
+      guessStart: guessStart || 0,
+      guessEnd: guessEnd || 0,
+      secretNumber: secretNumber || 0,
+      boxCount: boxCount || 0
     });
 
     // Build giveaway post text
@@ -571,6 +735,14 @@ async function handleConfirmGiveaway(bot, query) {
       ['Ends In', getTimeLeft(endsAt)]
     ]);
 
+    // For guess_number, show the range
+    if (type === 'guess_number' && guessStart !== undefined && guessEnd !== undefined) {
+      postText += '\n\n<b>🔢 GUESS THE NUMBER!</b>';
+      postText += '\nRange: ' + guessStart + ' - ' + guessEnd;
+      postText += '\nTap Join then DM your guess!';
+      postText += '\n\n<i>Bot will say Higher ⬆️ or Lower ⬇️</i>';
+    }
+
     // For first_to_dm, show countdown message
     if (type === 'first_to_dm') {
       const me = await bot.getMe();
@@ -579,10 +751,19 @@ async function handleConfirmGiveaway(bot, query) {
       postText += '\n\n<i>Be ready! The DM button will appear here!</i>';
     }
 
-    postText += '\n' + formatInfoBox('✅ MUST JOIN', [
-      `• @${channelId.replace('-100', '')} (host)`,
-      ...channelList
-    ], { width: 35 });
+    // For mystery_box
+    if (type === 'mystery_box' && boxCount) {
+      postText += '\n\n<b>🎁 MYSTERY BOX!</b>';
+      postText += '\n' + boxCount + ' boxes, 1 winner!';
+      postText += '\nTap Join then pick your box!';
+    }
+
+    // Must Join section with clean names
+    postText += '\n\n' + formatMustJoinSection(
+      { channelId },
+      config.OWNER_CHANNEL,
+      sponsorChannels
+    );
 
     postText += '\n\n📝 Tap below to enter!';
 
@@ -980,6 +1161,9 @@ module.exports = {
   handleCreateStart,
   handleSelectChannel,
   handleSelectType,
+  handleGuessRangeStart,
+  handleGuessRangeEnd,
+  handleBoxCount,
   handlePrizeInput,
   handleWinnersSelect,
   handleDurationSelect,
