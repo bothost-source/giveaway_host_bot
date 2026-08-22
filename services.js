@@ -186,13 +186,24 @@ async function createEntry(giveawayId, userId, username, data) {
   const lastEntry = await Entry.findOne({ giveawayId }).sort({ entryNumber: -1 });
   const entryNumber = (lastEntry?.entryNumber || 0) + 1;
 
+  // Get giveaway type to check if first_to_dm
+  const giveaway = await Giveaway.findOne({ giveawayId });
+  let dmOrder = 0;
+
+  if (giveaway && giveaway.type === 'first_to_dm') {
+    // Count existing entries to determine DM order
+    const existingCount = await Entry.countDocuments({ giveawayId, quitAt: { $exists: false } });
+    dmOrder = existingCount + 1;
+  }
+
   const entry = new Entry({
     entryId: generateId('EN'),
     giveawayId,
     userId,
     username,
     entryNumber,
-    data
+    data,
+    dmOrder
   });
 
   await entry.save();
@@ -321,6 +332,10 @@ async function drawWinners(giveaway) {
       if (b.votesCount !== a.votesCount) return b.votesCount - a.votesCount;
       return a.createdAt - b.createdAt;
     });
+    winners = sorted.slice(0, giveaway.winnersCount);
+  } else if (giveaway.type === 'first_to_dm') {
+    // First to DM: sort by dmOrder (1 = first person who DM'd)
+    const sorted = entries.sort((a, b) => a.dmOrder - b.dmOrder);
     winners = sorted.slice(0, giveaway.winnersCount);
   } else if (giveaway.type === 'referral') {
     // Referral-based: count confirmed referrals per user
