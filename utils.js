@@ -1,4 +1,4 @@
-// ─── Terminal-style Box Formatting ─────────────────────
+// ─── Telegram Blockquote Formatting ─────────────────────
 
 const WIDTH = 40;
 
@@ -15,22 +15,16 @@ function padRight(text, width) {
 }
 
 /**
- * Format a box with title and rows
+ * Format a box with title and rows using Telegram blockquote
  * rows = [[label, value], [label, value], ...]
  */
 function formatBox(title, rows, options = {}) {
   const width = options.width || WIDTH;
   const lines = [];
 
-  // Top border
-  lines.push('┌' + '─'.repeat(width) + '┐');
-
-  // Title
-  const titleText = title.length > width - 2 ? title.slice(0, width - 2) : title;
-  lines.push('│ ' + padRight(titleText, width - 1) + '│');
-
-  // Separator
-  lines.push('├' + '─'.repeat(width) + '┤');
+  // Title with emoji
+  lines.push(`<b>${title}</b>`);
+  lines.push('');
 
   // Rows
   for (const row of rows) {
@@ -65,32 +59,26 @@ function formatBox(title, rows, options = {}) {
     valueLines.forEach((vl, i) => {
       if (i === 0) {
         const left = padRight(label, labelWidth);
-        const right = padRight(vl, valueWidth);
-        lines.push('│ ' + left + '│  ' + right + ' │');
+        lines.push(`<code>${left}</code> │ <code>${vl}</code>`);
       } else {
         const left = padRight('', labelWidth);
-        const right = padRight(vl, valueWidth);
-        lines.push('│ ' + left + '│  ' + right + ' │');
+        lines.push(`<code>${left}</code> │ <code>${vl}</code>`);
       }
     });
   }
 
-  // Bottom border
-  lines.push('└' + '─'.repeat(width) + '┘');
-
-  return lines.join('\n');
+  return '<blockquote expandable>\n' + lines.join('\n') + '\n</blockquote>';
 }
 
 /**
- * Simple info box (no rows, just text lines)
+ * Simple info box using Telegram blockquote
  */
 function formatInfoBox(title, textLines, options = {}) {
   const width = options.width || WIDTH;
   const lines = [];
 
-  lines.push('┌' + '─'.repeat(width) + '┐');
-  lines.push('│ ' + padRight(title, width - 1) + '│');
-  lines.push('├' + '─'.repeat(width) + '┤');
+  lines.push(`<b>${title}</b>`);
+  lines.push('');
 
   for (const text of textLines) {
     const maxLen = width - 2;
@@ -99,20 +87,19 @@ function formatInfoBox(title, textLines, options = {}) {
       let current = '';
       for (const word of words) {
         if ((current + ' ' + word).trim().length > maxLen) {
-          lines.push('│ ' + padRight(current.trim(), width - 1) + '│');
+          lines.push(`<code>${current.trim()}</code>`);
           current = word;
         } else {
           current = current ? current + ' ' + word : word;
         }
       }
-      if (current) lines.push('│ ' + padRight(current.trim(), width - 1) + '│');
+      if (current) lines.push(`<code>${current.trim()}</code>`);
     } else {
-      lines.push('│ ' + padRight(text, width - 1) + '│');
+      lines.push(`<code>${text}</code>`);
     }
   }
 
-  lines.push('└' + '─'.repeat(width) + '┘');
-  return lines.join('\n');
+  return '<blockquote expandable>\n' + lines.join('\n') + '\n</blockquote>';
 }
 
 /**
