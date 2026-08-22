@@ -17,7 +17,7 @@ const {
   sendBox, buildJoinButtons,
   handleCreateStart, handleSelectChannel, handleSelectType,
   handlePrizeInput, handleWinnersSelect, handleDurationSelect,
-  handleConfirmGiveaway, handleChannelForward,
+  handleCustomDuration, handleConfirmGiveaway, handleChannelForward,
   handleManage, handleManageGiveaway, handleSponsor,
   handleHelp, handleMainMenu
 } = require('./commands');
@@ -176,7 +176,32 @@ function setupCallbacks(bot) {
         return handleManageGiveaway(bot, query, giveawayId);
       }
 
-      // ─── Join Giveaway ────────────────────────────────
+            // ─── Admin Callbacks ──────────────────────────────
+      if (data === 'admin_giveaways') return handleAdminGiveaways(bot, query);
+      if (data === 'admin_sponsors') return handleAdminSponsors(bot, query);
+      if (data === 'admin_broadcast') return handleAdminBroadcast(bot, query);
+      if (data === 'admin_panel') return handleAdminPanel(bot, query);
+      if (data === 'admin_add_sponsor') {
+        const { setState } = require('./commands');
+        setState(userId, 'admin_add_sponsor', {});
+        const text = formatBox('➕ ADD SPONSOR', [
+          ['Action', 'Send channel ID or @username']
+        ]);
+        return bot.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'admin_panel' }]]
+          }
+        });
+      }
+      if (data.startsWith('admin_remove_sponsor_')) {
+        const channelId = data.replace('admin_remove_sponsor_', '');
+        const { removeSponsor } = require('./services');
+        await removeSponsor(channelId);
+        return handleAdminSponsors(bot, query);
+      }
+
+// ─── Join Giveaway ────────────────────────────────
       if (data.startsWith('join_')) {
         const giveawayId = data.replace('join_', '');
         return handleJoinGiveaway(bot, query, giveawayId);
@@ -333,8 +358,22 @@ async function handleJoinGiveaway(bot, query, giveawayId) {
     });
 
     return bot.answerCallbackQuery(query.id, { text: 'Check your DMs!' });
+  } else if (giveaway.type === 'first_to_dm') {
+    // First to DM - user just needs to be ready
+    // No entry needed until they actually DM when time reaches
+    const me = await bot.getMe();
+    const successText = formatSuccess('✅ YOU'RE READY!', [
+      ['Status', '✅ Success'],
+      ['Giveaway', giveaway.prize],
+      ['Action', 'Wait for time!'],
+      ['', `When time reaches, DM @${me.username} FAST!`],
+      ['Detail', 'First to DM wins!']
+    ]);
+
+    await bot.sendMessage(userId, successText, { parse_mode: 'HTML' });
+    return bot.answerCallbackQuery(query.id, { text: 'Be ready to DM fast!' });
   } else {
-    // Random, reaction, comment, share, first_to_dm, auto_draw
+    // Random, reaction, comment, share, auto_draw
     // These don't need DM entry, just join
     const entry = await createEntry(giveawayId, userId, username, 'Joined');
 
@@ -411,7 +450,51 @@ function setupMessages(bot) {
     // Ignore commands
     if (msg.text && msg.text.startsWith('/')) return;
 
+    // ─── Check for active First to DM collection ──────
+    const { collectingGiveaways, pickFirstToDmWinners } = require('./jobs');
+    for (const [giveawayId, collectData] of collectingGiveaways) {
+      if (collectData.winnersPicked) continue;
+
+      const giveaway = collectData.giveaway;
+
+      // Check if user is member of required channels
+      const { checkAllMemberships } = require('./services');
+      const { allJoined } = await checkAllMemberships(bot, userId, giveaway);
+      if (!allJoined) continue;
+
+      // Check if already recorded
+      const { getUserEntry, createEntry } = require('./services');
+      const existing = await getUserEntry(giveawayId, userId);
+      if (existing) continue;
+
+      // Record this DM!
+      const result = await createEntry(giveawayId, userId, username, 'DM');
+      if (result.success) {
+        // Confirm to user
+        await bot.sendMessage(userId, 
+          `✅ DM RECORDED!\n\n` +
+          `Giveaway: ${giveaway.prize}\n` +
+          `You are #${result.entry.dmOrder} to DM!\n` +
+          `Winners will be announced soon!`, 
+          { parse_mode: 'HTML' }
+        );
+
+        // If we have enough entries, pick winners early!
+        const { getGiveawayEntries } = require('./services');
+        const allEntries = await getGiveawayEntries(giveawayId);
+        if (allEntries.length >= giveaway.winnersCount) {
+          await pickFirstToDmWinners(bot, giveawayId);
+        }
+      }
+      return; // Handled
+    }
+
     const state = getState(userId);
+
+    // ─── Custom Duration Input ────────────────────────
+    if (state.state === 'waiting_custom_duration') {
+      return handleCustomDuration(bot, msg);
+    }
 
     // ─── Prize Input ──────────────────────────────────
     if (state.state === 'waiting_prize') {
@@ -423,7 +506,74 @@ function setupMessages(bot) {
       return handleChannelForward(bot, msg);
     }
 
-    // ─── Entry Submission ─────────────────────────────
+          // ─── Admin Broadcast ──────────────────────────────
+      if (state.state === 'admin_broadcast') {
+        const broadcastText = msg.text.trim();
+        if (!broadcastText) {
+          return sendBox(bot, chatId, formatWarning('❌ EMPTY', '❌ Denied', 'Broadcast cannot be empty', 'Type a message'));
+        }
+
+        const { User } = require('./models');
+        const users = await User.find();
+        let sent = 0;
+        let failed = 0;
+
+        for (const user of users) {
+          try {
+            await bot.sendMessage(user.telegramId, broadcastText, { parse_mode: 'HTML' });
+            sent++;
+          } catch (e) {
+            failed++;
+          }
+        }
+
+        clearState(userId);
+        const text = formatSuccess('✅ BROADCAST SENT', [
+          ['Sent', sent.toString()],
+          ['Failed', failed.toString()],
+          ['Total', users.length.toString()]
+        ]);
+        return sendBox(bot, chatId, text, {
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Admin Panel', callback_data: 'admin_panel' }]]
+          }
+        });
+      }
+
+      // ─── Admin Add Sponsor ────────────────────────────
+      if (state.state === 'admin_add_sponsor') {
+        const channelInput = msg.text.trim();
+        let channelId = channelInput;
+        let channelUsername = channelInput;
+
+        if (channelInput.startsWith('@')) {
+          channelUsername = channelInput;
+          // Try to get channel ID
+          try {
+            const chat = await bot.getChat(channelInput);
+            channelId = chat.id.toString();
+          } catch (e) {
+            // Use username as ID fallback
+            channelId = channelInput;
+          }
+        }
+
+        const { addSponsor } = require('./services');
+        await addSponsor(channelId, channelUsername, userId);
+
+        clearState(userId);
+        const text = formatSuccess('✅ SPONSOR ADDED', [
+          ['Channel', channelUsername],
+          ['Status', '✅ Active']
+        ]);
+        return sendBox(bot, chatId, text, {
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Admin Panel', callback_data: 'admin_panel' }]]
+          }
+        });
+      }
+
+// ─── Entry Submission ─────────────────────────────
     if (state.state === 'waiting_entry') {
       const giveawayId = state.data.giveawayId;
       const giveaway = await getGiveaway(giveawayId);
@@ -523,6 +673,12 @@ async function updateGiveawayPost(bot, giveaway) {
       ['Entries', entries.length.toString()],
       ['Ends In', getTimeLeft(giveaway.endsAt)]
     ]);
+
+    // For first_to_dm, show DM target
+    if (giveaway.type === 'first_to_dm' && giveaway.dmTarget) {
+      text += '\n\n<b>📩 FIRST TO DM ' + giveaway.dmTarget + ' WINS!</b>';
+      text += '\nSend screenshot proof to ' + giveaway.dmTarget;
+    }
 
     text += '\n' + formatInfoBox('✅ MUST JOIN', [
       `• @${giveaway.channelId.replace('-100', '')} (host)`,
@@ -995,6 +1151,139 @@ function setupChatMember(bot) {
     const userId = msg.left_chat_member.id;
     const chatId = msg.chat.id.toString();
     await handleUserLeftChannel(userId, chatId);
+  });
+}
+
+
+// ─── Admin Handlers ─────────────────────────────────────
+
+async function handleAdminGiveaways(bot, query) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+
+  if (userId !== config.OWNER_ID) {
+    return bot.answerCallbackQuery(query.id, { text: 'Admin only!', show_alert: true });
+  }
+
+  const { Giveaway } = require('./models');
+  const giveaways = await Giveaway.find().sort({ createdAt: -1 }).limit(20);
+
+  if (giveaways.length === 0) {
+    const text = formatBox('📊 ALL GIVEAWAYS', [
+      ['Total', '0'],
+      ['Status', 'No giveaways yet']
+    ]);
+    return bot.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🔙 Admin Panel', callback_data: 'admin_panel' }]]
+      }
+    });
+  }
+
+  const rows = giveaways.map(g => {
+    const status = g.status === 'active' ? '🟢' : (g.status === 'ended' ? '🔴' : '⚪');
+    return [`${status} #${g.giveawayId.slice(-6)}`, `${g.prize} (${g.type})`];
+  });
+
+  const text = formatBox('📊 ALL GIVEAWAYS', [
+    ['Total', giveaways.length.toString()],
+    ...rows.slice(0, 10)
+  ]);
+
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[{ text: '🔙 Admin Panel', callback_data: 'admin_panel' }]]
+    }
+  });
+}
+
+async function handleAdminSponsors(bot, query) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+
+  if (userId !== config.OWNER_ID) {
+    return bot.answerCallbackQuery(query.id, { text: 'Admin only!', show_alert: true });
+  }
+
+  const { Sponsor } = require('./models');
+  const sponsors = await Sponsor.find({ active: true });
+
+  const text = formatBox('💎 MANAGE SPONSORS', [
+    ['Active', sponsors.length.toString()],
+    ['Price', `$${config.SPONSOR_PRICE_USD} / ${config.SPONSOR_PRICE_STARS}⭐`]
+  ]);
+
+  const keyboard = [
+    [{ text: '➕ Add Sponsor', callback_data: 'admin_add_sponsor' }],
+    [{ text: '🔙 Admin Panel', callback_data: 'admin_panel' }]
+  ];
+
+  if (sponsors.length > 0) {
+    sponsors.forEach((s, i) => {
+      keyboard.splice(i, 0, [{ text: `🗑️ ${s.channelUsername}`, callback_data: `admin_remove_sponsor_${s.channelId}` }]);
+    });
+  }
+
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: keyboard }
+  });
+}
+
+async function handleAdminBroadcast(bot, query) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+
+  if (userId !== config.OWNER_ID) {
+    return bot.answerCallbackQuery(query.id, { text: 'Admin only!', show_alert: true });
+  }
+
+  const text = formatBox('📢 BROADCAST', [
+    ['Status', 'Send message'],
+    ['Action', 'Type your broadcast below']
+  ]);
+
+  // Set state for broadcast
+  const { setState } = require('./commands');
+  setState(userId, 'admin_broadcast', {});
+
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'admin_panel' }]]
+    }
+  });
+}
+
+async function handleAdminPanel(bot, query) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+
+  if (userId !== config.OWNER_ID) {
+    return bot.answerCallbackQuery(query.id, { text: 'Admin only!', show_alert: true });
+  }
+
+  const { getOwnerGiveaways } = require('./services');
+  const giveaways = await getOwnerGiveaways(userId);
+  const activeGiveaways = giveaways.filter(g => g.status === 'active');
+
+  const text = formatBox('👑 ADMIN PANEL', [
+    ['Total GW', giveaways.length.toString()],
+    ['Active', activeGiveaways.length.toString()],
+    ['Status', '✅ Online']
+  ]);
+
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '📊 All Giveaways', callback_data: 'admin_giveaways' }],
+        [{ text: '💎 Manage Sponsors', callback_data: 'admin_sponsors' }],
+        [{ text: '📢 Broadcast', callback_data: 'admin_broadcast' }]
+      ]
+    }
   });
 }
 
