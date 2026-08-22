@@ -110,7 +110,7 @@ async function handleStart(bot, msg, match) {
       '   to your channel then tap below',
       '',
       '💎 Want YOUR channel featured?',
-      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
+      '   DM ' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
       '',
       "⚡ Let's make someone win today!"
     ]
@@ -763,7 +763,7 @@ async function handleMainMenu(bot, query) {
       '   to your channel then tap below',
       '',
       '💎 Want YOUR channel featured?',
-      '   DM @' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
+      '   DM ' + config.OWNER_USERNAME + ' — $10 or 150 ⭐',
       '',
       "⚡ Let's make someone win today!"
     ]
